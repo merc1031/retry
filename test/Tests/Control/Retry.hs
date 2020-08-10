@@ -7,7 +7,7 @@ module Tests.Control.Retry
 
 -------------------------------------------------------------------------------
 import           Control.Applicative
-import           Control.Concurrent
+import qualified Control.Concurrent          as Conc
 import           Control.Concurrent.STM      as STM
 import qualified Control.Exception           as EX
 import           Control.Monad.Catch
@@ -65,16 +65,16 @@ recoveringTests = testGroup "recovering"
   , testGroup "exception hierarchy semantics"
       [ testCase "does not catch async exceptions" $ do
           counter <- newTVarIO (0 :: Int)
-          done <- newEmptyMVar
-          let work = atomically (modifyTVar' counter succ) >> threadDelay 1000000
+          done <- Conc.newEmptyMVar
+          let work = atomically (modifyTVar' counter succ) >> Conc.threadDelay 1000000
 
-          tid <- forkIO $
-            recoverAll (limitRetries 2) (const work) `finally` putMVar done ()
+          tid <- Conc.forkIO $
+            recoverAll (limitRetries 2) (const work) `finally` Conc.putMVar done ()
 
           atomically (STM.check . (== 1) =<< readTVar counter)
           EX.throwTo tid EX.UserInterrupt
 
-          takeMVar done
+          Conc.takeMVar done
 
           count <- atomically (readTVar counter)
           count @?= 1
@@ -400,7 +400,7 @@ genRetryStatus = do
 -------------------------------------------------------------------------------
 -- | Generate an arbitrary 'RetryPolicy' without any limits applied.
 genPolicyNoLimit
-    :: (MonadGen mg, MonadIO mr)
+    :: (MonadGen mg, RetryM mr)
     => Range Int
     -> mg (RetryPolicyM mr)
 genPolicyNoLimit durationRange =
@@ -438,7 +438,7 @@ mkFailN e n = do
 
 -------------------------------------------------------------------------------
 gatherStatuses
-    :: MonadIO m
+    :: RetryM m
     => RetryPolicyM (WriterT [RetryStatus] m)
     -> m [RetryStatus]
 gatherStatuses policy = execWriterT $
