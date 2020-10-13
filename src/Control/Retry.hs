@@ -1,12 +1,14 @@
-{-# LANGUAGE BangPatterns          #-}
-{-# LANGUAGE CPP                   #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE MagicHash             #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE UnboxedTuples         #-}
-{-# LANGUAGE ViewPatterns          #-}
+{-# LANGUAGE BangPatterns                #-}
+{-# LANGUAGE CPP                         #-}
+{-# LANGUAGE DeriveGeneric               #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving  #-}
+{-# LANGUAGE MagicHash                   #-}
+{-# LANGUAGE RankNTypes                  #-}
+{-# LANGUAGE RecordWildCards             #-}
+{-# LANGUAGE ScopedTypeVariables         #-}
+{-# LANGUAGE TypeApplications            #-}
+{-# LANGUAGE UnboxedTuples               #-}
+{-# LANGUAGE ViewPatterns                #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -43,7 +45,6 @@ module Control.Retry
     , defaultRetryStatus
     , applyPolicy
     , applyAndDelay
-    , RetryM (..)
 
 
     -- ** Lenses for 'RetryStatus'
@@ -74,6 +75,16 @@ module Control.Retry
     , limitRetriesByCumulativeDelay
     , capDelay
 
+    -- * Inner functions for IO seam
+    , applyAndDelay'
+    , retrying'
+    , retryingDynamic'
+    , recovering'
+    , recoveringDynamic'
+    , recoverAll'
+    , fullJitterBackoff'
+    , ioSeam
+
     -- * Development Helpers
     , simulatePolicy
     , simulatePolicyPP
@@ -89,21 +100,10 @@ import           Control.Exception                    (AsyncException)
 #endif
 import           Control.Monad
 import           Control.Monad.Catch
+import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Trans.State
-import qualified Control.Monad.Trans.State.Strict     as SState
-import qualified Control.Monad.Trans.Writer.Lazy      as LWriter
-import qualified Control.Monad.Trans.Writer.Strict    as SWriter
-import qualified Control.Monad.Trans.Writer.CPS       as CWriter
-import           Control.Monad.Trans.Reader
-import           Control.Monad.Trans.Cont
-import           Control.Monad.Trans.Except
-import           Control.Monad.Trans.Identity
-import           Control.Monad.Trans.Select
-import qualified Control.Monad.Trans.RWS.Lazy         as LRWS
-import qualified Control.Monad.Trans.RWS.Strict       as SRWS
-import qualified Control.Monad.Trans.RWS.CPS          as CRWS
 import           Data.List (foldl')
 import           Data.Maybe
 import           GHC.Generics
@@ -276,99 +276,17 @@ rsPreviousDelayL = lens rsPreviousDelay (\rs x -> rs { rsPreviousDelay = x })
 -------------------------------------------------------------------------------
 -- | Permit a seam for the IO/MonadIO parts of retry to make
 -- testing in non IO more easy
-class Monad m => RetryM m where
-    rThreadDelay :: Int -> m ()
-    rRandomRIO :: Rand.Random a => (a, a) -> m a
+data RetrySeam m
+  = RetrySeam
+  { rsThreadDelay :: Int -> m ()
+  , rsRandomRIO :: forall a. Rand.Random a => (a, a) -> m a
+  }
 
-instance RetryM IO where
-    rThreadDelay = Conc.threadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = Rand.randomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (MaybeT m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance (Monoid w, RetryM m) => RetryM (LWriter.WriterT w m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance (Monoid w, RetryM m) => RetryM (SWriter.WriterT w m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance (Monoid w, RetryM m) => RetryM (CWriter.WriterT w m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (ReaderT r m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (StateT s m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (SState.StateT s m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (ContT r m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (ExceptT e m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (IdentityT m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance RetryM m => RetryM (SelectT r m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance (Monoid w, RetryM m) => RetryM (LRWS.RWST r w s m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance (Monoid w, RetryM m) => RetryM (SRWS.RWST r w s m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
-
-instance (Monoid w, RetryM m) => RetryM (CRWS.RWST r w s m) where
-    rThreadDelay = lift . rThreadDelay
-    {-# INLINE rThreadDelay #-}
-    rRandomRIO = lift . rRandomRIO
-    {-# INLINE rRandomRIO #-}
+ioSeam
+  :: MonadIO m
+  => RetrySeam m
+ioSeam
+  = RetrySeam (liftIO . Conc.threadDelay) (liftIO . Rand.randomRIO)
 
 -------------------------------------------------------------------------------
 -- | Apply policy on status to see what the decision would be.
@@ -392,20 +310,30 @@ applyPolicy (RetryPolicyM policy) s = do
 -- | Apply policy and delay by its amount if it results in a retry.
 -- Return updated status.
 applyAndDelay
-    :: RetryM m
+    :: MonadIO m
     => RetryPolicyM m
     -> RetryStatus
     -> m (Maybe RetryStatus)
-applyAndDelay policy s = do
+applyAndDelay = applyAndDelay' ioSeam
+
+-------------------------------------------------------------------------------
+-- | Apply policy and delay by its amount if it results in a retry.
+-- Return updated status.
+applyAndDelay'
+    :: Monad m
+    => RetrySeam m
+    -> RetryPolicyM m
+    -> RetryStatus
+    -> m (Maybe RetryStatus)
+applyAndDelay' (RetrySeam {..}) policy s = do
     chk <- applyPolicy policy s
     case chk of
       Just rs -> do
         case (rsPreviousDelay rs) of
           Nothing -> return ()
-          Just delay -> rThreadDelay delay
+          Just delay -> rsThreadDelay delay
         return (Just rs)
       Nothing -> return Nothing
-
 
 
 -------------------------------------------------------------------------------
@@ -479,6 +407,13 @@ exponentialBackoff
 exponentialBackoff base = retryPolicy $ \ RetryStatus { rsIterNumber = n } ->
   Just $! base `boundedMult` boundedPow 2 n
 
+fullJitterBackoff
+    :: MonadIO m
+    => Int
+    -- ^ Base delay in microseconds
+    -> RetryPolicyM m
+fullJitterBackoff = fullJitterBackoff' ioSeam
+
 -------------------------------------------------------------------------------
 -- | FullJitter exponential backoff as explained in AWS Architecture
 -- Blog article.
@@ -488,14 +423,15 @@ exponentialBackoff base = retryPolicy $ \ RetryStatus { rsIterNumber = n } ->
 -- temp = min(cap, base * 2 ** attempt)
 --
 -- sleep = temp \/ 2 + random_between(0, temp \/ 2)
-fullJitterBackoff
-    :: RetryM m
-    => Int
+fullJitterBackoff'
+    :: Monad m
+    => RetrySeam m
+    -> Int
     -- ^ Base delay in microseconds
     -> RetryPolicyM m
-fullJitterBackoff base = RetryPolicyM $ \ RetryStatus { rsIterNumber = n } -> do
+fullJitterBackoff' (RetrySeam {..}) base = RetryPolicyM $ \ RetryStatus { rsIterNumber = n } -> do
   let d = (base `boundedMult` boundedPow 2 n) `div` 2
-  rand <- rRandomRIO (0, d)
+  rand <- rsRandomRIO (0, d)
   return $! Just $! d `boundedPlus` rand
 
 
@@ -529,6 +465,16 @@ capDelay limit p = RetryPolicyM $ \ n ->
   (fmap (min limit)) `liftM` (getRetryPolicyM p) n
 
 
+retrying  :: MonadIO m
+          => RetryPolicyM m
+          -> (RetryStatus -> b -> m Bool)
+          -- ^ An action to check whether the result should be retried.
+          -- If True, we delay and retry the operation.
+          -> (RetryStatus -> m b)
+          -- ^ Action to run
+          -> m b
+retrying = retrying' ioSeam
+
 -------------------------------------------------------------------------------
 -- | Retry combinator for actions that don't raise exceptions, but
 -- signal in their type the outcome has failed. Examples are the
@@ -550,17 +496,31 @@ capDelay limit p = RetryPolicyM $ \ n ->
 --
 -- Note how the latest failing result is returned after all retries
 -- have been exhausted.
-retrying  :: RetryM m
-          => RetryPolicyM m
-          -> (RetryStatus -> b -> m Bool)
-          -- ^ An action to check whether the result should be retried.
-          -- If True, we delay and retry the operation.
-          -> (RetryStatus -> m b)
-          -- ^ Action to run
-          -> m b
-retrying policy chk f =
-    retryingDynamic policy (\rs -> fmap toRetryAction . chk rs) f
+retrying' 
+  :: Monad m
+  => RetrySeam m
+  -> RetryPolicyM m
+  -> (RetryStatus -> b -> m Bool)
+  -- ^ An action to check whether the result should be retried.
+  -- If True, we delay and retry the operation.
+  -> (RetryStatus -> m b)
+  -- ^ Action to run
+  -> m b
+retrying' seam policy chk f =
+    retryingDynamic' seam policy (\rs -> fmap toRetryAction . chk rs) f
 
+
+retryingDynamic
+    :: MonadIO m
+    => RetryPolicyM m
+    -> (RetryStatus -> b -> m RetryAction)
+    -- ^ An action to check whether the result should be retried.
+    -- The returned 'RetryAction' determines how/if a retry is performed.
+    -- See documentation on 'RetryAction'.
+    -> (RetryStatus -> m b)
+    -- ^ Action to run
+    -> m b
+retryingDynamic = retryingDynamic' ioSeam
 
 -------------------------------------------------------------------------------
 -- | Same as 'retrying', but with the ability to override
@@ -583,9 +543,10 @@ retrying policy chk f =
 -- Note that a 'RetryPolicy's decision to /not/ perform a retry
 -- cannot be overridden. Ie. /when/ to /stop/ retrying is always decided
 -- by the retry policy, regardless of the returned 'RetryAction' value.
-retryingDynamic
-    :: RetryM m
-    => RetryPolicyM m
+retryingDynamic'
+    :: Monad m
+    => RetrySeam m
+    -> RetryPolicyM m
     -> (RetryStatus -> b -> m RetryAction)
     -- ^ An action to check whether the result should be retried.
     -- The returned 'RetryAction' determines how/if a retry is performed.
@@ -593,12 +554,12 @@ retryingDynamic
     -> (RetryStatus -> m b)
     -- ^ Action to run
     -> m b
-retryingDynamic policy chk f = go defaultRetryStatus
+retryingDynamic' seam policy chk f = go defaultRetryStatus
   where
     go s = do
         res <- f s
         let consultPolicy policy' = do
-              rs <- applyAndDelay policy' s
+              rs <- applyAndDelay' seam policy' s
               case rs of
                 Nothing -> return res
                 Just rs' -> go $! rs'
@@ -609,6 +570,17 @@ retryingDynamic policy chk f = go defaultRetryStatus
           ConsultPolicyOverrideDelay delay ->
             consultPolicy $ modifyRetryPolicyDelay (const delay) policy
 
+
+recoverAll
+#if MIN_VERSION_exceptions(0, 6, 0)
+         :: (MonadIO m, MonadMask m)
+#else
+         :: (MonadIO m, MonadCatch m)
+#endif
+         => RetryPolicyM m
+         -> (RetryStatus -> m a)
+         -> m a
+recoverAll = recoverAll' ioSeam
 
 -------------------------------------------------------------------------------
 -- | Retry ALL exceptions that may be raised. To be used with caution;
@@ -632,16 +604,17 @@ retryingDynamic policy chk f = go defaultRetryStatus
 -- Running action
 -- Running action
 -- *** Exception: this is an error
-recoverAll
+recoverAll'
 #if MIN_VERSION_exceptions(0, 6, 0)
-         :: (RetryM m, MonadMask m)
+         :: MonadMask m
 #else
-         :: (RetryM m, MonadCatch m)
+         :: MonadCatch m
 #endif
-         => RetryPolicyM m
+         => RetrySeam m
+         -> RetryPolicyM m
          -> (RetryStatus -> m a)
          -> m a
-recoverAll set f = recovering set handlers f
+recoverAll' seam set f = recovering' seam set handlers f
     where
       handlers = skipAsyncExceptions ++ [h]
       h _ = Handler $ \ (_ :: SomeException) -> return True
@@ -653,8 +626,7 @@ recoverAll set f = recovering set handlers f
 -- this list as a convenient way to make sure you're not catching
 -- async exceptions like user interrupt.
 skipAsyncExceptions
-    :: ( RetryM m
-       )
+    :: Monad m
     => [RetryStatus -> Handler m Bool]
 skipAsyncExceptions = handlers
   where
@@ -667,20 +639,11 @@ skipAsyncExceptions = handlers
 #endif
 
 
--------------------------------------------------------------------------------
--- | Run an action and recover from a raised exception by potentially
--- retrying the action a number of times. Note that if you're going to
--- use a handler for 'SomeException', you should add explicit cases
--- *earlier* in the list of handlers to reject 'AsyncException' and
--- 'SomeAsyncException', as catching these can cause thread and
--- program hangs. 'recoverAll' already does this for you so if you
--- just plan on catching 'SomeException', you may as well ues
--- 'recoverAll'
 recovering
 #if MIN_VERSION_exceptions(0, 6, 0)
-    :: (RetryM m, MonadMask m)
+    :: (MonadIO m, MonadMask m)
 #else
-    :: (RetryM m, MonadCatch m)
+    :: (MonadIO m, MonadCatch m)
 #endif
     => RetryPolicyM m
     -- ^ Just use 'retryPolicyDefault' for default settings
@@ -692,18 +655,44 @@ recovering
     -> (RetryStatus -> m a)
     -- ^ Action to perform
     -> m a
-recovering policy hs f =
-    recoveringDynamic policy hs' f
+recovering = recovering' ioSeam
+
+-------------------------------------------------------------------------------
+-- | Run an action and recover from a raised exception by potentially
+-- retrying the action a number of times. Note that if you're going to
+-- use a handler for 'SomeException', you should add explicit cases
+-- *earlier* in the list of handlers to reject 'AsyncException' and
+-- 'SomeAsyncException', as catching these can cause thread and
+-- program hangs. 'recoverAll' already does this for you so if you
+-- just plan on catching 'SomeException', you may as well ues
+-- 'recoverAll'
+recovering'
+#if MIN_VERSION_exceptions(0, 6, 0)
+    :: MonadMask m
+#else
+    :: MonadCatch m
+#endif
+    => RetrySeam m
+    -> RetryPolicyM m
+    -- ^ Just use 'retryPolicyDefault' for default settings
+    -> [(RetryStatus -> Handler m Bool)]
+    -- ^ Should a given exception be retried? Action will be
+    -- retried if this returns True *and* the policy allows it.
+    -- This action will be consulted first even if the policy
+    -- later blocks it.
+    -> (RetryStatus -> m a)
+    -- ^ Action to perform
+    -> m a
+recovering' seam policy hs f =
+    recoveringDynamic' seam policy hs' f
   where
     hs' = map (fmap toRetryAction .) hs
 
--- | The difference between this and 'recovering' is the same as
---  the difference between 'retryingDynamic' and 'retrying'.
 recoveringDynamic
 #if MIN_VERSION_exceptions(0, 6, 0)
-    :: (RetryM m, MonadMask m)
+    :: (MonadIO m, MonadMask m)
 #else
-    :: (RetryM m, MonadCatch m)
+    :: (MonadIO m, MonadCatch m)
 #endif
     => RetryPolicyM m
     -- ^ Just use 'retryPolicyDefault' for default settings
@@ -716,7 +705,29 @@ recoveringDynamic
     -> (RetryStatus -> m a)
     -- ^ Action to perform
     -> m a
-recoveringDynamic policy hs f = mask $ \restore -> go restore defaultRetryStatus
+recoveringDynamic = recoveringDynamic' ioSeam
+
+-- | The difference between this and 'recovering' is the same as
+--  the difference between 'retryingDynamic' and 'retrying'.
+recoveringDynamic'
+#if MIN_VERSION_exceptions(0, 6, 0)
+    :: MonadMask m
+#else
+    :: MonadCatch m
+#endif
+    => RetrySeam m
+    -> RetryPolicyM m
+    -- ^ Just use 'retryPolicyDefault' for default settings
+    -> [(RetryStatus -> Handler m RetryAction)]
+    -- ^ Should a given exception be retried? Action will be
+    -- retried if this returns either 'ConsultPolicy' or
+    -- 'ConsultPolicyOverrideDelay' *and* the policy allows it.
+    -- This action will be consulted first even if the policy
+    -- later blocks it.
+    -> (RetryStatus -> m a)
+    -- ^ Action to perform
+    -> m a
+recoveringDynamic' seam policy hs f = mask $ \restore -> go restore defaultRetryStatus
     where
       go restore = loop
         where
@@ -730,7 +741,7 @@ recoveringDynamic policy hs f = mask $ \restore -> go restore defaultRetryStatus
               recover e ((($ s) -> Handler h) : hs')
                 | Just e' <- fromException e = do
                     let consultPolicy policy' = do
-                          rs <- applyAndDelay policy' s
+                          rs <- applyAndDelay' seam policy' s
                           case rs of
                             Just rs' -> loop $! rs'
                             Nothing -> throwM e'
@@ -742,8 +753,6 @@ recoveringDynamic policy hs f = mask $ \restore -> go restore defaultRetryStatus
                         consultPolicy $ modifyRetryPolicyDelay (const delay) policy
                 | otherwise = recover e hs'
 
-
-
 -------------------------------------------------------------------------------
 -- | A version of 'recovering' that tries to run the action only a
 -- single time. The control will return immediately upon both success
@@ -751,9 +760,9 @@ recoveringDynamic policy hs f = mask $ \restore -> go restore defaultRetryStatus
 -- queues and similar external-interfacing systems.
 stepping
 #if MIN_VERSION_exceptions(0, 6, 0)
-    :: (RetryM m, MonadMask m)
+    :: MonadMask m
 #else
-    :: (RetryM m, MonadCatch m)
+    :: MonadCatch m
 #endif
     => RetryPolicyM m
     -- ^ Just use 'retryPolicyDefault' for default settings

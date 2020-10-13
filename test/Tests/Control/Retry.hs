@@ -400,7 +400,9 @@ genRetryStatus = do
 -------------------------------------------------------------------------------
 -- | Generate an arbitrary 'RetryPolicy' without any limits applied.
 genPolicyNoLimit
-    :: (MonadGen mg, RetryM mr)
+    :: ( MonadIO mr
+       , MonadGen mg
+       )
     => Range Int
     -> mg (RetryPolicyM mr)
 genPolicyNoLimit durationRange =
@@ -438,7 +440,7 @@ mkFailN e n = do
 
 -------------------------------------------------------------------------------
 gatherStatuses
-    :: RetryM m
+    :: MonadIO m
     => RetryPolicyM (WriterT [RetryStatus] m)
     -> m [RetryStatus]
 gatherStatuses policy = execWriterT $
