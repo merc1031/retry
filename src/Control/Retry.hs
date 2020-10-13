@@ -277,98 +277,98 @@ rsPreviousDelayL = lens rsPreviousDelay (\rs x -> rs { rsPreviousDelay = x })
 -- | Permit a seam for the IO/MonadIO parts of retry to make
 -- testing in non IO more easy
 class Monad m => RetryM m where
-    threadDelay :: Int -> m ()
-    randomRIO :: Rand.Random a => (a, a) -> m a
+    rThreadDelay :: Int -> m ()
+    rRandomRIO :: Rand.Random a => (a, a) -> m a
 
 instance RetryM IO where
-    threadDelay = Conc.threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = Rand.randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = Conc.threadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = Rand.randomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (MaybeT m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance (Monoid w, RetryM m) => RetryM (LWriter.WriterT w m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance (Monoid w, RetryM m) => RetryM (SWriter.WriterT w m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance (Monoid w, RetryM m) => RetryM (CWriter.WriterT w m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (ReaderT r m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (StateT s m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (SState.StateT s m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (ContT r m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (ExceptT e m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (IdentityT m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance RetryM m => RetryM (SelectT r m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance (Monoid w, RetryM m) => RetryM (LRWS.RWST r w s m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance (Monoid w, RetryM m) => RetryM (SRWS.RWST r w s m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 instance (Monoid w, RetryM m) => RetryM (CRWS.RWST r w s m) where
-    threadDelay = lift . threadDelay
-    {-# INLINE threadDelay #-}
-    randomRIO = lift . randomRIO
-    {-# INLINE randomRIO #-}
+    rThreadDelay = lift . rThreadDelay
+    {-# INLINE rThreadDelay #-}
+    rRandomRIO = lift . rRandomRIO
+    {-# INLINE rRandomRIO #-}
 
 -------------------------------------------------------------------------------
 -- | Apply policy on status to see what the decision would be.
@@ -402,7 +402,7 @@ applyAndDelay policy s = do
       Just rs -> do
         case (rsPreviousDelay rs) of
           Nothing -> return ()
-          Just delay -> threadDelay delay
+          Just delay -> rThreadDelay delay
         return (Just rs)
       Nothing -> return Nothing
 
@@ -495,7 +495,7 @@ fullJitterBackoff
     -> RetryPolicyM m
 fullJitterBackoff base = RetryPolicyM $ \ RetryStatus { rsIterNumber = n } -> do
   let d = (base `boundedMult` boundedPow 2 n) `div` 2
-  rand <- randomRIO (0, d)
+  rand <- rRandomRIO (0, d)
   return $! Just $! d `boundedPlus` rand
 
 
