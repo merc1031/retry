@@ -76,6 +76,7 @@ module Control.Retry
     , capDelay
 
     -- * Inner functions for IO seam
+    , RetrySeam (..)
     , applyAndDelay'
     , retrying'
     , retryingDynamic'
